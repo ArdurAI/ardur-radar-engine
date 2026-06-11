@@ -1,0 +1,58 @@
+{
+  "name": "@ardurai/radar-engine",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Standalone OSS RADAR engine for ardur.ai — GitHub + chatter ingestion, momentum signals, Top-10 OSS ranking, persisted ledger, signal map, and fact-grounded AI-primary project writeups",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types src/smoke.test.ts",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "radar": "node --experimental-strip-types src/cli.ts",
+    "describe": "node --experimental-strip-types src/cli.ts --describe"
+  },
+  "keywords": [
+    "ardur",
+    "radar",
+    "open-source",
+    "oss",
+    "momentum",
+    "ranking",
+    "signal-map",
+    "content-pipeline"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArdurAI/ardur-radar-engine.git"
+  },
+  "dependencies": {
+    "@ardurai/contracts": "github:ArdurAI/ardur-contracts#4a47ec8"
+  },
+  "optionalDependencies": {
+    "openai": "^6.42.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.18.0"
+  }
+}

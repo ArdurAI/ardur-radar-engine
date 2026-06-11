@@ -25,7 +25,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "radar": "node --experimental-strip-types src/cli.ts",
-    "describe": "node --experimental-strip-types src/cli.ts --describe"
+    "describe": "node --experimental-strip-types src/cli.ts --describe",
+    "cycle": "node --experimental-strip-types src/cycle.ts"
   },
   "keywords": [
     "ardur",

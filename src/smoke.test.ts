@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   repoScore,
@@ -15,10 +18,12 @@ import {
   synthesizeWriteup,
   createProvider,
   runRadar,
+  runCycle,
   cycleFor,
   describe as describeManifest,
   CONTRACT_REVISION,
   RADAR_SCHEMA_VERSION,
+  MANIFEST_SCHEMA_VERSION,
 } from './index.ts';
 import type { RadarProject, RankedSignal, MomentumSnapshot, ProjectSignalFact } from './types.ts';
 import type { AiProvider, GenerateRequest, GenerateResult } from './writeup/provider.ts';
@@ -272,4 +277,70 @@ test('cycleFor aligns to 6-hour UTC windows', () => {
   const c = cycleFor(new Date('2026-06-11T07:23:00.000Z'));
   assert.equal(c.windowStart, '2026-06-11T06:00:00.000Z');
   assert.equal(c.windowEnd, '2026-06-11T12:00:00.000Z');
+});
+
+// ──────────────── Cycle host tests ────────────────────────────────────────────
+
+test('cycle host writes artifact and manifest to outputDir', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'radar-test-'));
+  try {
+    const result = await runCycle({
+      outputDir,
+      now: '2026-06-11T06:00:00.000Z',
+      env: { ARDUR_AI_PROVIDER: 'deterministic' },
+    });
+    assert.equal(result.ok, true);
+    assert.ok(result.runId.startsWith('run:'));
+    assert.ok(result.artifactBytes > 0);
+    assert.ok(result.durationMs >= 0);
+
+    // latest/radar.json must exist and be valid.
+    const latestJson = readFileSync(join(outputDir, 'latest', 'radar.json'), 'utf-8');
+    const artifact = JSON.parse(latestJson) as { schemaVersion: string; artifact: string };
+    assert.equal(artifact.schemaVersion, RADAR_SCHEMA_VERSION);
+    assert.equal(artifact.artifact, 'radar');
+
+    // manifest.json must exist, point to latest, and report ok.
+    const manifestJson = readFileSync(join(outputDir, 'manifest.json'), 'utf-8');
+    const manifest = JSON.parse(manifestJson) as {
+      schemaVersion: string;
+      ok: boolean;
+      latestPath: string;
+      latestRunId: string;
+    };
+    assert.equal(manifest.schemaVersion, MANIFEST_SCHEMA_VERSION);
+    assert.equal(manifest.ok, true);
+    assert.equal(manifest.latestPath, 'latest/radar.json');
+    assert.equal(manifest.latestRunId, result.runId);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});
+
+test('cycle host threads previous artifact for ledger continuity', async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), 'radar-ledger-test-'));
+  try {
+    // First cycle — establishes the latest artifact.
+    await runCycle({
+      outputDir,
+      now: '2026-06-11T06:00:00.000Z',
+      env: { ARDUR_AI_PROVIDER: 'deterministic' },
+    });
+
+    // Second cycle — host reads latest/radar.json as previous, so ledger accumulates.
+    const result2 = await runCycle({
+      outputDir,
+      now: '2026-06-11T12:00:00.000Z',
+      env: { ARDUR_AI_PROVIDER: 'deterministic' },
+    });
+    assert.equal(result2.ok, true);
+
+    // Manifest runId must have been updated to the second cycle.
+    const manifest = JSON.parse(readFileSync(join(outputDir, 'manifest.json'), 'utf-8')) as {
+      latestRunId: string;
+    };
+    assert.equal(manifest.latestRunId, result2.runId);
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
 });

@@ -58,3 +58,12 @@ export {
 
 // Agent-readiness
 export { describe, type ToolManifest } from './manifest.ts';
+
+// Cycle host (6h cron orchestration)
+export {
+  runCycle,
+  type CycleRunResult,
+  type CycleHostOptions,
+  type RadarManifest,
+  MANIFEST_SCHEMA_VERSION,
+} from './cycle-host.ts';

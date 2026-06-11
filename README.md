@@ -80,12 +80,36 @@ Errors are emitted as a single JSON object on **stderr** with exit code 1.
 
 | Script | Purpose |
 |---|---|
-| `npm run radar` | run a radar cycle |
+| `npm run radar` | run a single radar cycle (stdout) |
+| `npm run cycle` | run a cycle and write `manifest.json` + `latest/radar.json` to `RADAR_OUTPUT_DIR` |
 | `npm run describe` | print the tool manifest |
 | `npm run build` | `tsc` → `dist/` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | node:test smoke suite |
 | `npm run lint` / `format:check` | eslint / prettier |
+
+## Hosting the 6h cycle
+
+`npm run cycle` is the cron entry point. It reads the previous artifact from
+`$RADAR_OUTPUT_DIR/latest/radar.json` (if it exists) as `--in` to accumulate
+ledger history, runs the pipeline, and writes atomically:
+
+```
+$RADAR_OUTPUT_DIR/
+  latest/radar.json   ← current artifact (atomic rename from tmp/)
+  manifest.json       ← last-good-wins pointer (written only on success)
+  tmp/                ← staging area (cleaned after rename)
+```
+
+Cron (UTC-aligned, every 6h):
+
+```cron
+0 */6 * * *  cd /path/to/ardur-radar-engine && RADAR_OUTPUT_DIR=/data/radar GITHUB_TOKEN=... npm run cycle 2>>cycle.log
+```
+
+All output goes to stderr as newline-delimited JSON (`{"ts":"…","level":"info","event":"cycle.ok",…}`).
+The manifest is only updated after a successful write, so `latest/radar.json` always
+points to the last good artifact even if a cycle fails mid-way.
 
 ## Configuration
 

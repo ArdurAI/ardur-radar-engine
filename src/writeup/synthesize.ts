@@ -2,9 +2,11 @@
  * Fact-grounded, AI-primary project writeups with HOLD.
  *
  * Facts are derived from the project's OWN signals (GitHub adoption, recency,
- * license, topics — real metadata, never an assumption-y paraphrase). The AI
- * provider writes original prose grounded in those facts; every claim is gated
- * against them. If the provider is unavailable, the prose is ungrounded after one
+ * license, topics — real metadata, never an assumption-y paraphrase). When
+ * ARDUR_OSS_ENRICH_GITHUB is set (or GITHUB_TOKEN present), richer facts are
+ * appended from the latest release and a short README excerpt. The AI provider
+ * writes original prose grounded in those facts; every claim is gated against
+ * them. If the provider is unavailable, the prose is ungrounded after one
  * bounded re-ask, or copyright checks fail, the writeup is HELD (never published)
  * rather than shipped on a flat template.
  */
@@ -14,12 +16,17 @@ import type { RankedSignal, ProjectWriteup, ProjectSignalFact } from '../types.t
 import { ageDays, stableId } from '../util.ts';
 import type { AiProvider, WriteupDraft } from './provider.ts';
 import { buildProvenanceFromFacts, enforceCopyright, type ClaimInput } from './copyright.ts';
+import type { ProjectEnrichment } from '../ingest/github-enrich.ts';
 
 const VOICE_DIRECTIVE =
   'House voice: precise, practitioner-facing, no hype. State only what the signals support.';
 
-/** Derive grounded facts from a project's real GitHub signals. */
-export function deriveFacts(signal: RankedSignal, now: Date): ProjectSignalFact[] {
+/** Derive grounded facts from a project's real GitHub signals (+ optional enrichment). */
+export function deriveFacts(
+  signal: RankedSignal,
+  now: Date,
+  enrichment?: ProjectEnrichment | null,
+): ProjectSignalFact[] {
   const extractedBy: ProviderMeta = {
     provider: 'deterministic',
     model: 'signal-extract/v1',
@@ -79,6 +86,39 @@ export function deriveFacts(signal: RankedSignal, now: Date): ProjectSignalFact[
       extractedBy,
     });
   }
+
+  // Enrichment facts (opt-in, from GitHub releases + README).
+  if (enrichment) {
+    if (enrichment.release) {
+      const rel = enrichment.release;
+      const relDays = Math.round(ageDays(rel.publishedAt, now));
+      facts.push({
+        id: stableId('fact', `${signal.id}:release`),
+        statement: `${signal.name} latest release is ${rel.tag}, published ${relDays} day${relDays === 1 ? '' : 's'} ago.`,
+        quantity: {
+          metric: 'days-since-release',
+          value: relDays,
+          unit: 'days',
+          asOf: now.toISOString(),
+        },
+        entities: [signal.name, rel.tag, 'release'],
+        provenance: [{ kind: 'github-release', url: rel.url }],
+        confidence: 'high',
+        extractedBy,
+      });
+    }
+    if (enrichment.readmeExcerpt) {
+      facts.push({
+        id: stableId('fact', `${signal.id}:readme`),
+        statement: `${signal.name} README: "${enrichment.readmeExcerpt}"`,
+        entities: [signal.name, 'README'],
+        provenance: [{ kind: 'github-readme', url: `${signal.url}#readme` }],
+        confidence: 'medium',
+        extractedBy,
+      });
+    }
+  }
+
   return facts;
 }
 
@@ -112,8 +152,8 @@ function splitClaims(body: string): ClaimInput[] {
     .map((text, i) => ({ blockIndex: i, text, isEditorial: false }));
 }
 
-function toSourceRefs(signal: RankedSignal): SourceRef[] {
-  return [
+function toSourceRefs(signal: RankedSignal, enrichment?: ProjectEnrichment | null): SourceRef[] {
+  const refs: SourceRef[] = [
     {
       source: 'GitHub',
       sourceDomain: 'github.com',
@@ -123,6 +163,17 @@ function toSourceRefs(signal: RankedSignal): SourceRef[] {
       publishedAt: signal.pushedAt ?? signal.createdAt ?? '',
     },
   ];
+  if (enrichment?.release) {
+    refs.push({
+      source: 'GitHub Releases',
+      sourceDomain: 'github.com',
+      tier: 'primary',
+      url: enrichment.release.url,
+      title: `${signal.name} ${enrichment.release.tag}`,
+      publishedAt: enrichment.release.publishedAt,
+    });
+  }
+  return refs;
 }
 
 function held(
@@ -130,6 +181,7 @@ function held(
   facts: ProjectSignalFact[],
   reason: string,
   ai: ProviderMeta,
+  enrichment?: ProjectEnrichment | null,
 ): ProjectWriteup {
   return {
     projectId: signal.id,
@@ -144,7 +196,7 @@ function held(
     holdReason: reason,
     facts,
     claims: [],
-    references: toSourceRefs(signal),
+    references: toSourceRefs(signal, enrichment),
     ai,
   };
 }
@@ -154,8 +206,9 @@ export async function synthesizeWriteup(
   signal: RankedSignal,
   provider: AiProvider,
   now: Date,
+  enrichment?: ProjectEnrichment | null,
 ): Promise<ProjectWriteup> {
-  const facts = deriveFacts(signal, now);
+  const facts = deriveFacts(signal, now, enrichment);
   const fallback = buildFallbackDraft(signal, facts);
   const baseRequest = {
     projectId: signal.id,
@@ -168,18 +221,24 @@ export async function synthesizeWriteup(
   };
 
   if (!provider.canGenerate()) {
-    return held(signal, facts, 'ai-unavailable', {
-      provider: 'deterministic',
-      model: 'rules/v1',
-      status: 'fallback',
-      generatedAt: now.toISOString(),
-    });
+    return held(
+      signal,
+      facts,
+      'ai-unavailable',
+      {
+        provider: 'deterministic',
+        model: 'rules/v1',
+        status: 'fallback',
+        generatedAt: now.toISOString(),
+      },
+      enrichment,
+    );
   }
 
   let result = await provider.generate(baseRequest);
   // AI-primary: a deterministic/fallback result is held, not flat-published.
   if (result.meta.provider === 'deterministic' || result.meta.status === 'fallback') {
-    return held(signal, facts, result.meta.reason ?? 'ai-fallback', result.meta);
+    return held(signal, facts, result.meta.reason ?? 'ai-fallback', result.meta, enrichment);
   }
 
   let claims = splitClaims(result.draft.body);
@@ -192,14 +251,14 @@ export async function synthesizeWriteup(
       reaskClaims: provenance.ungroundedClaims.map((c) => c.text),
     });
     if (result.meta.provider === 'deterministic' || result.meta.status === 'fallback') {
-      return held(signal, facts, 'ai-fallback-on-reask', result.meta);
+      return held(signal, facts, 'ai-fallback-on-reask', result.meta, enrichment);
     }
     claims = splitClaims(result.draft.body);
     provenance = buildProvenanceFromFacts(claims, facts);
   }
 
   if (!provenance.isGrounded) {
-    return held(signal, facts, 'ungrounded-after-regrounding', result.meta);
+    return held(signal, facts, 'ungrounded-after-regrounding', result.meta, enrichment);
   }
 
   const copyright = enforceCopyright(
@@ -212,6 +271,7 @@ export async function synthesizeWriteup(
       facts,
       `copyright:${copyright.violations.map((v) => v.kind).join(',')}`,
       result.meta,
+      enrichment,
     );
   }
 
@@ -228,20 +288,22 @@ export async function synthesizeWriteup(
     editorialStatus: 'published',
     facts,
     claims: provenance.claims,
-    references: toSourceRefs(signal),
+    references: toSourceRefs(signal, enrichment),
     ai: result.meta,
   };
 }
 
-/** Synthesize writeups for the whole Top-10. */
+/** Synthesize writeups for the whole Top-10, with optional per-project enrichment. */
 export async function synthesizeWriteups(
   topTen: RankedSignal[],
   provider: AiProvider,
   now: Date,
+  enrichments?: Map<string, ProjectEnrichment>,
 ): Promise<ProjectWriteup[]> {
   const writeups: ProjectWriteup[] = [];
   for (const signal of topTen) {
-    writeups.push(await synthesizeWriteup(signal, provider, now));
+    const enrichment = enrichments?.get(signal.fullName) ?? null;
+    writeups.push(await synthesizeWriteup(signal, provider, now, enrichment));
   }
   return writeups;
 }

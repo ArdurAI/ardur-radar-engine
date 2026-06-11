@@ -22,6 +22,13 @@ export {
   githubLiveEnabled,
 } from './ingest/github.ts';
 export { collectChatter, searchTermsFor, chatterLiveEnabled } from './ingest/chatter.ts';
+export {
+  enrichProject,
+  enrichProjects,
+  enrichmentEnabled,
+  type ProjectEnrichment,
+  type ReleaseEnrichment,
+} from './ingest/github-enrich.ts';
 
 // Scoring core
 export {

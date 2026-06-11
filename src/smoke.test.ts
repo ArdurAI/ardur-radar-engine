@@ -19,6 +19,7 @@ import {
   createProvider,
   runRadar,
   runCycle,
+  enrichmentEnabled,
   cycleFor,
   describe as describeManifest,
   CONTRACT_REVISION,
@@ -27,6 +28,7 @@ import {
 } from './index.ts';
 import type { RadarProject, RankedSignal, MomentumSnapshot, ProjectSignalFact } from './types.ts';
 import type { AiProvider, GenerateRequest, GenerateResult } from './writeup/provider.ts';
+import type { ProjectEnrichment } from './ingest/github-enrich.ts';
 
 const NOW = new Date('2026-06-11T06:00:00.000Z');
 
@@ -277,6 +279,42 @@ test('cycleFor aligns to 6-hour UTC windows', () => {
   const c = cycleFor(new Date('2026-06-11T07:23:00.000Z'));
   assert.equal(c.windowStart, '2026-06-11T06:00:00.000Z');
   assert.equal(c.windowEnd, '2026-06-11T12:00:00.000Z');
+});
+
+// ──────────────── Enrichment fact tests ───────────────────────────────────────
+
+test('deriveFacts includes release + readme facts when enrichment provided', () => {
+  const enrichment: ProjectEnrichment = {
+    fullName: 'acme/widget',
+    release: {
+      tag: 'v2.1.0',
+      publishedAt: '2026-06-01T00:00:00.000Z',
+      url: 'https://github.com/acme/widget/releases/tag/v2.1.0',
+    },
+    readmeExcerpt: 'Widget is a fast, pluggable orchestration framework.',
+  };
+  const facts = deriveFacts(rankedFixture(), NOW, enrichment);
+  // Fact IDs are content-addressed hashes; identify facts by provenance kind.
+  const relFact = facts.find((f) => f.provenance.some((p) => p.kind === 'github-release'));
+  const readmeFact = facts.find((f) => f.provenance.some((p) => p.kind === 'github-readme'));
+  assert.ok(relFact, 'release fact must be present');
+  assert.ok(relFact?.statement.includes('v2.1.0'));
+  assert.ok(readmeFact, 'readme fact must be present');
+  assert.ok(readmeFact?.statement.includes('Widget is a fast'));
+});
+
+test('deriveFacts is unchanged when no enrichment provided', () => {
+  const noEnrich = deriveFacts(rankedFixture(), NOW);
+  const withNull = deriveFacts(rankedFixture(), NOW, null);
+  assert.equal(noEnrich.length, withNull.length);
+  assert.ok(!noEnrich.some((f) => f.provenance.some((p) => p.kind === 'github-release')));
+});
+
+test('enrichmentEnabled respects the env flag', () => {
+  assert.equal(enrichmentEnabled({}), false);
+  assert.equal(enrichmentEnabled({ ARDUR_OSS_ENRICH_GITHUB: '1' }), true);
+  assert.equal(enrichmentEnabled({ GITHUB_TOKEN: 'ghp_test' }), true);
+  assert.equal(enrichmentEnabled({ ARDUR_OSS_ENRICH_GITHUB: '0' }), false);
 });
 
 // ──────────────── Cycle host tests ────────────────────────────────────────────

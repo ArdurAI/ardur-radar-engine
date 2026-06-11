@@ -21,6 +21,7 @@ import { updateLedger } from './ledger.ts';
 import { buildSignalMap } from './signal-map.ts';
 import { createProvider } from './writeup/provider.ts';
 import { synthesizeWriteups } from './writeup/synthesize.ts';
+import { enrichProjects } from './ingest/github-enrich.ts';
 
 export interface RunOptions {
   now: Date;
@@ -69,9 +70,16 @@ export async function runRadar(options: RunOptions): Promise<RadarArtifact> {
   // 5. Signal map.
   const signalMap = buildSignalMap(topTen, momentum, now);
 
-  // 6. Writeups (fact-grounded, AI-primary, HOLD on failure).
+  // 6. Enrichment (opt-in: latest release + README excerpt for Top-10 projects).
+  const enrichments = await enrichProjects(
+    topTen.map((p) => p.fullName),
+    env,
+    fetchImpl,
+  );
+
+  // 7. Writeups (fact-grounded, AI-primary, HOLD on failure).
   const provider = createProvider({ now, env, fetchImpl });
-  const writeups = await synthesizeWriteups(topTen, provider, now);
+  const writeups = await synthesizeWriteups(topTen, provider, now, enrichments);
 
   const data: RadarData = {
     source:

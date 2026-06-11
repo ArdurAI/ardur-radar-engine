@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { runRadar } from './pipeline.ts';
 import { describe } from './manifest.ts';
 import { resolveNow } from './clock.ts';
-import { RADAR_SCHEMA_VERSION } from './contracts.ts';
+import { assertCompatibleRadarArtifact } from './schema.ts';
 import type { RadarArtifact } from './types.ts';
 
 interface ParsedArgs {
@@ -61,13 +61,13 @@ function loadPrevious(path: string): RadarArtifact {
       err instanceof Error ? err.message : err,
     );
   }
-  const env = raw as Partial<RadarArtifact>;
-  if (env.schemaVersion !== RADAR_SCHEMA_VERSION || env.artifact !== 'radar') {
-    emitError(
-      `--in artifact is not a ${RADAR_SCHEMA_VERSION} radar artifact (got schemaVersion=${String(env.schemaVersion)}, artifact=${String(env.artifact)})`,
-    );
+  try {
+    const { artifact, warnings } = assertCompatibleRadarArtifact(raw);
+    for (const w of warnings) process.stderr.write(`[warn] --in: ${w}\n`);
+    return artifact;
+  } catch (err) {
+    emitError(`--in artifact failed schema gate`, err instanceof Error ? err.message : err);
   }
-  return raw as RadarArtifact;
 }
 
 async function main(): Promise<void> {

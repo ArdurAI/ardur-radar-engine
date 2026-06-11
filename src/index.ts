@@ -66,6 +66,9 @@ export {
 // Agent-readiness
 export { describe, type ToolManifest } from './manifest.ts';
 
+// Schema gate
+export { assertCompatibleRadarArtifact, type RadarGateResult } from './schema.ts';
+
 // Cycle host (6h cron orchestration)
 export {
   runCycle,

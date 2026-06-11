@@ -20,12 +20,14 @@ import {
   runRadar,
   runCycle,
   enrichmentEnabled,
+  assertCompatibleRadarArtifact,
   cycleFor,
   describe as describeManifest,
   CONTRACT_REVISION,
   RADAR_SCHEMA_VERSION,
   MANIFEST_SCHEMA_VERSION,
 } from './index.ts';
+import { SchemaVersionError } from './contracts.ts';
 import type { RadarProject, RankedSignal, MomentumSnapshot, ProjectSignalFact } from './types.ts';
 import type { AiProvider, GenerateRequest, GenerateResult } from './writeup/provider.ts';
 import type { ProjectEnrichment } from './ingest/github-enrich.ts';
@@ -279,6 +281,70 @@ test('cycleFor aligns to 6-hour UTC windows', () => {
   const c = cycleFor(new Date('2026-06-11T07:23:00.000Z'));
   assert.equal(c.windowStart, '2026-06-11T06:00:00.000Z');
   assert.equal(c.windowEnd, '2026-06-11T12:00:00.000Z');
+});
+
+// ──────────────── Schema gate tests ───────────────────────────────────────────
+
+test('assertCompatibleRadarArtifact accepts a valid artifact', async () => {
+  const seed = [makeProject()];
+  const artifact = await runRadar({ now: NOW, env: {}, seedProjects: seed });
+  const { artifact: gated, warnings } = assertCompatibleRadarArtifact(artifact);
+  assert.ok(gated);
+  assert.equal(gated.schemaVersion, RADAR_SCHEMA_VERSION);
+  assert.equal(warnings.length, 0);
+});
+
+test('assertCompatibleRadarArtifact throws on wrong schemaVersion', () => {
+  assert.throws(
+    () =>
+      assertCompatibleRadarArtifact({
+        schemaVersion: 'ardur-news/v1',
+        artifact: 'radar',
+        data: {},
+      }),
+    (e: unknown) => e instanceof SchemaVersionError,
+  );
+});
+
+test('assertCompatibleRadarArtifact throws on wrong artifact type', () => {
+  assert.throws(
+    () =>
+      assertCompatibleRadarArtifact({
+        schemaVersion: RADAR_SCHEMA_VERSION,
+        artifact: 'aggregation',
+        data: {},
+      }),
+    (e: unknown) => e instanceof SchemaVersionError,
+  );
+});
+
+test('assertCompatibleRadarArtifact throws on missing required data fields', () => {
+  assert.throws(
+    () =>
+      assertCompatibleRadarArtifact({
+        schemaVersion: RADAR_SCHEMA_VERSION,
+        artifact: 'radar',
+        data: { projects: [], topTen: [] }, // missing writeups, errors, ledger, signalMap
+      }),
+    (e: unknown) => e instanceof SchemaVersionError,
+  );
+});
+
+test('assertCompatibleRadarArtifact warns on newer contractRevision', () => {
+  const { warnings } = assertCompatibleRadarArtifact({
+    schemaVersion: RADAR_SCHEMA_VERSION,
+    artifact: 'radar',
+    contractRevision: CONTRACT_REVISION + 1,
+    data: {
+      projects: [],
+      topTen: [],
+      writeups: [],
+      errors: [],
+      ledger: { projects: {}, stats: {} },
+      signalMap: { nodes: [], edges: [], layout: {}, rankedList: [] },
+    },
+  });
+  assert.ok(warnings.some((w) => w.includes('forward-compatible')));
 });
 
 // ──────────────── Enrichment fact tests ───────────────────────────────────────

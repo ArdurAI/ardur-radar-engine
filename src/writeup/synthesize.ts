@@ -110,9 +110,13 @@ export function deriveFacts(
     if (enrichment.readmeExcerpt) {
       facts.push({
         id: stableId('fact', `${signal.id}:readme`),
-        statement: `${signal.name} README: "${enrichment.readmeExcerpt}"`,
+        // Excerpt goes in provenance.quote (checked by copyright gate) rather than
+        // embedded verbatim in the statement to avoid serializing third-party text.
+        statement: `${signal.name} documents its purpose in the project README.`,
         entities: [signal.name, 'README'],
-        provenance: [{ kind: 'github-readme', url: `${signal.url}#readme` }],
+        provenance: [
+          { kind: 'github-readme', url: `${signal.url}#readme`, quote: enrichment.readmeExcerpt },
+        ],
         confidence: 'medium',
         extractedBy,
       });

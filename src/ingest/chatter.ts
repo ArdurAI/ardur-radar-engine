@@ -182,9 +182,15 @@ async function fetchMedium(
   const res = await fetchImpl(url);
   if (!res.ok) return unavailable('medium');
   const xml = await boundedText(res, MAX_CHATTER_BYTES);
-  const titles = [...xml.matchAll(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/g)].map(
-    (m) => m[1] ?? '',
-  );
+  // Two explicit, non-backtracking patterns replace the ambiguous combined optional
+  // (?:<!\[CDATA\[)?(.*?)(?:\]\]>)? that invited catastrophic backtracking (ReDoS).
+  const CDATA_TITLE_RE = /<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/g;
+  const PLAIN_TITLE_RE = /<title>([^<]*)<\/title>/g;
+  const stripped = xml.replace(CDATA_TITLE_RE, ''); // remove CDATA blocks before plain pass
+  const titles = [
+    ...[...xml.matchAll(CDATA_TITLE_RE)].map((m) => m[1] ?? ''),
+    ...[...stripped.matchAll(PLAIN_TITLE_RE)].map((m) => m[1] ?? ''),
+  ];
   const items = titles.slice(1); // first <title> is the feed itself
   const score = clamp(items.length * 3, PLATFORM_MAX);
   return {

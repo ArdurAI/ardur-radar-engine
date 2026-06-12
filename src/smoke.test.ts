@@ -342,6 +342,7 @@ test('assertCompatibleRadarArtifact warns on newer contractRevision', () => {
       errors: [],
       ledger: { projects: {}, stats: {} },
       signalMap: { nodes: [], edges: [], layout: {}, rankedList: [] },
+      momentum: { lookup: { byProjectId: {} } },
     },
   });
   assert.ok(warnings.some((w) => w.includes('forward-compatible')));
@@ -366,7 +367,10 @@ test('deriveFacts includes release + readme facts when enrichment provided', () 
   assert.ok(relFact, 'release fact must be present');
   assert.ok(relFact?.statement.includes('v2.1.0'));
   assert.ok(readmeFact, 'readme fact must be present');
-  assert.ok(readmeFact?.statement.includes('Widget is a fast'));
+  // README excerpt is now in provenance.quote (not embedded in statement) to
+  // avoid serializing verbatim third-party text in the fact statement.
+  const readmeProv = readmeFact?.provenance.find((p) => p.kind === 'github-readme');
+  assert.ok(readmeProv?.quote?.includes('Widget is a fast'));
 });
 
 test('deriveFacts is unchanged when no enrichment provided', () => {

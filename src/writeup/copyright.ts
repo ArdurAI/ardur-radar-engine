@@ -4,12 +4,14 @@
  * Reuses the news synthesizer's two ideas:
  *   1. Fact grounding — every non-editorial claim sentence must map to ≥1
  *      `ProjectSignalFact` (via inline [FACT:id] or entity/number overlap).
- *   2. Copyright safety — short quotes only (<25 words), canonical links on
- *      every fact's provenance, and a credential/secret screen.
+ *   2. Copyright safety — short quotes only (≤25 words), canonical links on
+ *      every fact's provenance, and a credential/secret screen applied to all
+ *      text including fact statements and provenance quotes.
  */
 
 import type { ClaimProvenance, Confidence } from '../contracts.ts';
 import type { ProjectSignalFact } from '../types.ts';
+import { safePublicUrl } from '../util.ts';
 
 export const MAX_QUOTE_WORDS = 25;
 
@@ -65,6 +67,27 @@ function contentTokens(text: string): Set<string> {
 
 export function extractInlineCitations(text: string): string[] {
   return [...text.matchAll(/\[FACT:([^\]]+)\]/g)].map((m) => m[1] ?? '').filter(Boolean);
+}
+
+/**
+ * CJK-aware word count. Each CJK ideograph counts as one word (they are
+ * self-delimiting and do not use whitespace between words).
+ * Non-CJK tokens are counted by whitespace splitting.
+ * Prevents adversarial long CJK strings from bypassing the MAX_QUOTE_WORDS limit.
+ */
+export function countWords(text: string): number {
+  // CJK ideographs are self-delimiting; each character counts as one word.
+  // Ranges with /u flag: CJK Radicals (2E80-2EFF), CJK Unified + Kana (3000-9FFF),
+  // Yi (A000-AFFF), CJK Compat (F900-FAFF), CJK Compat Forms (FE30-FE4F).
+  const CJK_RE =
+    /[\u{2E80}-\u{2EFF}\u{3000}-\u{9FFF}\u{A000}-\u{AFFF}\u{F900}-\u{FAFF}\u{FE30}-\u{FE4F}]/gu;
+  const cjkCount = (text.match(CJK_RE) ?? []).length;
+  const latinCount = text
+    .replace(CJK_RE, '')
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0).length;
+  return cjkCount + latinCount;
 }
 
 export interface ProvenanceResult {
@@ -152,13 +175,18 @@ export function enforceCopyright(
 
   for (const fact of facts) {
     for (const prov of fact.provenance) {
-      if (prov.quote && prov.quote.trim().split(/\s+/).length >= MAX_QUOTE_WORDS) {
-        violations.push({
-          kind: 'quote-too-long',
-          detail: `fact ${fact.id} carries a quote of ${prov.quote.trim().split(/\s+/).length} words (limit ${MAX_QUOTE_WORDS})`,
-        });
+      if (prov.quote) {
+        const wc = countWords(prov.quote.trim());
+        // Off-by-one fix: allow exactly MAX_QUOTE_WORDS; reject strictly more.
+        if (wc > MAX_QUOTE_WORDS) {
+          violations.push({
+            kind: 'quote-too-long',
+            detail: `fact ${fact.id} carries a quote of ${wc} words (limit ${MAX_QUOTE_WORDS})`,
+          });
+        }
       }
-      if (!prov.url || !prov.url.startsWith('http')) {
+      // URL must be a safe, credential-free public http(s) URL.
+      if (!safePublicUrl(prov.url)) {
         violations.push({
           kind: 'missing-canonical-link',
           detail: `fact ${fact.id} provenance is missing a canonical URL`,
@@ -167,8 +195,15 @@ export function enforceCopyright(
     }
   }
 
+  // Credential screen covers model prose + all fact statements + provenance quotes.
+  const allText = [
+    text,
+    ...facts.map((f) => f.statement),
+    ...facts.flatMap((f) => f.provenance.map((p) => p.quote ?? '')),
+  ].join(' ');
+
   for (const pattern of CREDENTIAL_PATTERNS) {
-    if (pattern.test(text)) {
+    if (pattern.test(allText)) {
       violations.push({
         kind: 'credential-leak',
         detail: 'potential credential/secret detected in writeup text',

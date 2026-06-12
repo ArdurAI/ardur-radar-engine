@@ -8,6 +8,7 @@
 
 export * from './types.ts';
 export { RADAR_SCHEMA_VERSION, CONTRACT_REVISION, type RadarEnvelope } from './contracts.ts';
+export { safePublicUrl } from './util.ts';
 
 // Pipeline
 export { runRadar, type RunOptions } from './pipeline.ts';
@@ -60,6 +61,7 @@ export {
   buildProvenanceFromFacts,
   enforceCopyright,
   extractInlineCitations,
+  countWords,
   MAX_QUOTE_WORDS,
 } from './writeup/copyright.ts';
 

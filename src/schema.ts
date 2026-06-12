@@ -92,6 +92,44 @@ export function assertCompatibleRadarArtifact(raw: unknown): RadarGateResult {
     }
   }
 
+  // data.momentum: if present it must be a non-null object with a lookup map.
+  // Absence is tolerated with a warning (backward-compat with older artifacts).
+  const momentum = data['momentum'];
+  if (momentum !== undefined) {
+    if (typeof momentum !== 'object' || momentum === null) {
+      throw new SchemaVersionError({
+        expected: 'non-null object at .data.momentum',
+        received: momentum,
+        stage: 'radar',
+      });
+    }
+    const mObj = momentum as Record<string, unknown>;
+    if (typeof mObj['lookup'] !== 'object' || mObj['lookup'] === null) {
+      throw new SchemaVersionError({
+        expected: 'non-null object at .data.momentum.lookup',
+        received: mObj['lookup'],
+        stage: 'radar',
+      });
+    }
+  } else {
+    warnings.push('data.momentum is absent; artifact may be from an older engine version');
+  }
+
+  // Element-shape checks: first project/topTen entry must have fullName or id.
+  for (const field of ['projects', 'topTen'] as const) {
+    const arr = data[field] as unknown[];
+    if (arr.length > 0) {
+      const first = arr[0] as Record<string, unknown>;
+      if (typeof first?.['fullName'] !== 'string' && typeof first?.['id'] !== 'string') {
+        throw new SchemaVersionError({
+          expected: `string fullName or id on first element of .data.${field}`,
+          received: first,
+          stage: 'radar',
+        });
+      }
+    }
+  }
+
   // Contract revision warnings (non-fatal).
   const rev = typeof env['contractRevision'] === 'number' ? env['contractRevision'] : 1;
   if (rev > CONTRACT_REVISION) {

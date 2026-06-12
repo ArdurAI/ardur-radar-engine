@@ -21,9 +21,9 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from '
 import { join, resolve } from 'node:path';
 import { runRadar, type RunOptions } from './pipeline.ts';
 import { resolveNow } from './clock.ts';
-import { RADAR_SCHEMA_VERSION } from './contracts.ts';
 import type { RadarArtifact } from './types.ts';
 import type { CycleMeta } from './contracts.ts';
+import { assertCompatibleRadarArtifact } from './schema.ts';
 
 export const MANIFEST_SCHEMA_VERSION = 'ardur-radar-manifest/v1' as const;
 
@@ -75,9 +75,11 @@ function structuredLog(
 function loadPreviousArtifact(latestPath: string): RadarArtifact | null {
   if (!existsSync(latestPath)) return null;
   try {
-    const raw = JSON.parse(readFileSync(latestPath, 'utf-8')) as Partial<RadarArtifact>;
-    if (raw.schemaVersion !== RADAR_SCHEMA_VERSION || raw.artifact !== 'radar') return null;
-    return raw as RadarArtifact;
+    // Full schema gate — prevents a poisoned latest/radar.json from bypassing
+    // type safety via a 2-field manual cast (CWE-20).
+    const raw: unknown = JSON.parse(readFileSync(latestPath, 'utf-8'));
+    const { artifact } = assertCompatibleRadarArtifact(raw);
+    return artifact;
   } catch {
     return null;
   }

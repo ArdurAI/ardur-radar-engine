@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --experimental-strip-types src/smoke.test.ts src/parity.test.ts src/chatter.test.ts",
+    "test": "node --test --experimental-strip-types src/smoke.test.ts src/parity.test.ts src/chatter.test.ts src/security.test.ts",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",

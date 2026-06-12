@@ -65,6 +65,25 @@ export function envFlag(env: NodeJS.ProcessEnv, key: string): boolean {
   return v === '1' || v === 'true';
 }
 
+/**
+ * Normalize a URL to a credential-free public HTTPS/HTTP URL.
+ * Returns null when the input is absent, non-http(s), or embeds credentials.
+ * CWE-200 / CWE-601 mitigation — reused across all URL serialization points.
+ */
+export function safePublicUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    // Strip embedded credentials (user:pass@host pattern).
+    u.username = '';
+    u.password = '';
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 /** Parse an int env var with a default. */
 export function envInt(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
   const raw = env[key];

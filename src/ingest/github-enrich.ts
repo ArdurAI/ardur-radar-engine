@@ -6,7 +6,7 @@
  * Off by default — CI and deterministic cycles make zero network calls.
  */
 
-import { boundedText, envFlag } from '../util.ts';
+import { boundedText, envFlag, safePublicUrl } from '../util.ts';
 
 const README_MAX_BYTES = 64 * 1024; // 64 KB
 const RELEASE_MAX_BYTES = 32 * 1024; // 32 KB
@@ -40,20 +40,29 @@ function buildHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
 }
 
 /**
- * Extract a short, copyright-safe README excerpt (≤25 words, ≤160 chars).
- * Strips markdown, takes the first substantive sentence from the first paragraph.
+ * Validate that fullName has the safe "owner/repo" shape before URL interpolation.
+ * Guards against SSRF, path traversal, and header injection (CWE-918, CWE-22, CWE-88).
  */
-function extractReadmeExcerpt(raw: string): string | null {
-  // Decode base64 content returned by the GitHub API.
-  let text = raw;
-  try {
-    if (/^[A-Za-z0-9+/\s]+=*$/.test(raw.slice(0, 100))) {
-      text = Buffer.from(raw.replace(/\s/g, ''), 'base64').toString('utf-8');
-    }
-  } catch {
-    // Treat raw as plain text.
-  }
+function validateFullName(fullName: string): boolean {
+  return (
+    /^[a-zA-Z0-9._-]{1,100}\/[a-zA-Z0-9._-]{1,100}$/.test(fullName) && !fullName.includes('..')
+  );
+}
 
+/** Build a safe GitHub API URL from a validated fullName (percent-encodes each segment). */
+function buildRepoUrl(fullName: string, suffix: string): string {
+  const slash = fullName.indexOf('/');
+  const owner = encodeURIComponent(fullName.slice(0, slash));
+  const repo = encodeURIComponent(fullName.slice(slash + 1));
+  return `https://api.github.com/repos/${owner}/${repo}/${suffix}`;
+}
+
+/**
+ * Extract a short, copyright-safe README excerpt (≤25 words, ≤160 chars).
+ * Accepts already-decoded plain text — the caller decodes base64 via the API
+ * encoding field, so no heuristic is needed here.
+ */
+function extractReadmeExcerpt(text: string): string | null {
   // Strip markdown: headings, badges, links, bold/italic, code spans.
   const clean = text
     .replace(/^#.*$/gm, '') // headings
@@ -66,7 +75,7 @@ function extractReadmeExcerpt(raw: string): string | null {
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Take first non-empty sentence (ends with . ! ?) that has ≥6 words.
+  // Take first non-empty sentence (ends with . ! ?) that has ≥4 words.
   const sentences = clean.split(/(?<=[.!?])\s+/);
   for (const s of sentences) {
     const t = s.trim();
@@ -91,8 +100,9 @@ async function fetchLatestRelease(
   fetchImpl: typeof fetch,
 ): Promise<ReleaseEnrichment | null> {
   try {
-    const res = await fetchImpl(`https://api.github.com/repos/${fullName}/releases/latest`, {
+    const res = await fetchImpl(buildRepoUrl(fullName, 'releases/latest'), {
       headers,
+      redirect: 'error', // prevent Bearer token from following cross-origin redirects (CWE-918)
     });
     if (!res.ok) return null;
     const raw = await boundedText(res, RELEASE_MAX_BYTES);
@@ -105,7 +115,7 @@ async function fetchLatestRelease(
     return {
       tag: data.tag_name,
       publishedAt: data.published_at,
-      url: data.html_url ?? `https://github.com/${fullName}/releases/latest`,
+      url: safePublicUrl(data.html_url) ?? `https://github.com/${fullName}/releases/latest`,
     };
   } catch {
     return null;
@@ -119,12 +129,20 @@ async function fetchReadmeExcerpt(
   fetchImpl: typeof fetch,
 ): Promise<string | null> {
   try {
-    const res = await fetchImpl(`https://api.github.com/repos/${fullName}/readme`, { headers });
+    const res = await fetchImpl(buildRepoUrl(fullName, 'readme'), {
+      headers,
+      redirect: 'error',
+    });
     if (!res.ok) return null;
     const raw = await boundedText(res, README_MAX_BYTES);
     const data = JSON.parse(raw) as { content?: string; encoding?: string };
     if (!data.content) return null;
-    return extractReadmeExcerpt(data.content);
+    // Honor the API's encoding field (#11) instead of guessing from content shape.
+    const decoded =
+      data.encoding === 'base64'
+        ? Buffer.from(data.content.replace(/\s/g, ''), 'base64').toString('utf-8')
+        : data.content;
+    return extractReadmeExcerpt(decoded);
   } catch {
     return null;
   }
@@ -137,6 +155,7 @@ export async function enrichProject(
   fetchImpl: typeof fetch,
 ): Promise<ProjectEnrichment | null> {
   if (!enrichmentEnabled(env)) return null;
+  if (!validateFullName(fullName)) return null; // SSRF input gate (CWE-918/CWE-22)
 
   const headers = buildHeaders(env);
   const [release, readmeExcerpt] = await Promise.all([

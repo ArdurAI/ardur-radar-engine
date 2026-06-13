@@ -65,7 +65,7 @@ function makeFact(
     id,
     statement,
     entities: [],
-    provenance: [{ kind: 'test', url, quote }],
+    provenance: quote !== undefined ? [{ kind: 'test', url, quote }] : [{ kind: 'test', url }],
     confidence: 'high' as const,
     extractedBy: {
       provider: 'deterministic',
@@ -504,9 +504,23 @@ test('#12 Medium RSS title parsing handles CDATA titles correctly', async () => 
     homepage: null,
     categoryLabel: 'Kubernetes',
     category: 'kubernetes',
+    sourceRefs: [],
+    sourceCount: 1,
+    sourceQuery: 'kubernetes',
+    rankingConfidence: {
+      level: 'high' as const,
+      rationale: 'test',
+      signals: {
+        stars: true,
+        forks: true,
+        pushedRecent: true,
+        licenseKnown: true,
+        matchedTopics: true,
+        sourceCount: true,
+      },
+    },
     rank: 1,
     score: 90,
-    confidence: 'high' as const,
     scoreBreakdown: {
       githubAdoption: 80,
       crossPlatformMomentum: 70,

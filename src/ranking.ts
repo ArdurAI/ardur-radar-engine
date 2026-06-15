@@ -116,6 +116,8 @@ export function rankTopSignals(
       rankingRationale: rationale,
     };
   });
-  scored.sort((a, b) => b.score - a.score || a.fullName.localeCompare(b.fullName));
+  scored.sort(
+    (a, b) => b.score - a.score || (a.fullName < b.fullName ? -1 : a.fullName > b.fullName ? 1 : 0),
+  );
   return scored.slice(0, limit).map((signal, i) => ({ ...signal, rank: i + 1 }));
 }

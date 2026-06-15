@@ -10,6 +10,7 @@
 import type { RankedSignal, LedgerSnapshot, LedgerProject, RankHistoryEntry } from './types.ts';
 
 const HISTORY_WINDOW = 40;
+export const DROPPED_PRUNE_AFTER_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
 /** Merge the current Top-10 into the prior ledger, returning the new ledger. */
 export function updateLedger(
@@ -22,7 +23,10 @@ export function updateLedger(
 
   // Carry forward existing entries (deep-ish copy of history arrays).
   for (const [id, prev] of Object.entries(previous?.projects ?? {})) {
-    projects[id] = { ...prev, rankHistory: [...prev.rankHistory] };
+    projects[id] = {
+      ...prev,
+      rankHistory: Array.isArray(prev.rankHistory) ? [...prev.rankHistory] : [],
+    };
   }
 
   const activeIds = new Set<string>();
@@ -68,6 +72,15 @@ export function updateLedger(
   for (const project of Object.values(projects)) {
     if (!activeIds.has(project.projectId) && project.droppedAt === null) {
       project.droppedAt = nowIso;
+    }
+  }
+
+  // Prune stale dropped entries to bound ledger growth (#17).
+  for (const [id, project] of Object.entries(projects)) {
+    if (project.droppedAt !== null && project.droppedAt !== undefined) {
+      if (now.valueOf() - new Date(project.droppedAt).valueOf() > DROPPED_PRUNE_AFTER_MS) {
+        delete projects[id];
+      }
     }
   }
 

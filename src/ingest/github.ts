@@ -16,7 +16,7 @@ import type {
   RankingConfidence,
   ConfidenceLevel,
 } from '../types.ts';
-import { ageDays, boundedText, envFlag, envInt, log10p1, unique } from '../util.ts';
+import { ageDays, boundedText, envFlag, envInt, log10p1, safePublicUrl, unique } from '../util.ts';
 
 const GITHUB_SEARCH_URL = 'https://api.github.com/search/repositories';
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -164,7 +164,7 @@ function mapRepo(
     fullName,
     description: repo.description ?? '',
     url: repo.html_url,
-    homepage: repo.homepage && repo.homepage.length > 0 ? repo.homepage : null,
+    homepage: safePublicUrl(repo.homepage), // #15: sanitize untrusted API value.
     owner: repo.owner.login,
     language: repo.language,
     license,

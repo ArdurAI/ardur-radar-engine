@@ -156,6 +156,24 @@ function splitClaims(body: string): ClaimInput[] {
     .map((text, i) => ({ blockIndex: i, text, isEditorial: false }));
 }
 
+/**
+ * Split all grounded draft fields into claim inputs.
+ * headline/dek are editorial short phrases (skip grounding); body/whyItMatters/readerAction
+ * contain factual sentences that must be grounded (#13).
+ */
+function splitAllClaims(draft: WriteupDraft): ClaimInput[] {
+  const body = splitClaims(draft.body);
+  const why = splitClaims(draft.whyItMatters).map((c) => ({
+    ...c,
+    blockIndex: c.blockIndex + 1000,
+  }));
+  const action = splitClaims(draft.readerAction).map((c) => ({
+    ...c,
+    blockIndex: c.blockIndex + 2000,
+  }));
+  return [...body, ...why, ...action];
+}
+
 function toSourceRefs(signal: RankedSignal, enrichment?: ProjectEnrichment | null): SourceRef[] {
   const refs: SourceRef[] = [
     {
@@ -245,7 +263,7 @@ export async function synthesizeWriteup(
     return held(signal, facts, result.meta.reason ?? 'ai-fallback', result.meta, enrichment);
   }
 
-  let claims = splitClaims(result.draft.body);
+  let claims = splitAllClaims(result.draft);
   let provenance = buildProvenanceFromFacts(claims, facts);
 
   if (!provenance.isGrounded && provider.canGenerate()) {
@@ -257,7 +275,7 @@ export async function synthesizeWriteup(
     if (result.meta.provider === 'deterministic' || result.meta.status === 'fallback') {
       return held(signal, facts, 'ai-fallback-on-reask', result.meta, enrichment);
     }
-    claims = splitClaims(result.draft.body);
+    claims = splitAllClaims(result.draft);
     provenance = buildProvenanceFromFacts(claims, facts);
   }
 
@@ -266,7 +284,13 @@ export async function synthesizeWriteup(
   }
 
   const copyright = enforceCopyright(
-    [result.draft.body, result.draft.whyItMatters, result.draft.readerAction].join(' '),
+    [
+      result.draft.headline,
+      result.draft.dek,
+      result.draft.body,
+      result.draft.whyItMatters,
+      result.draft.readerAction,
+    ].join(' '),
     facts,
   );
   if (!copyright.ok) {

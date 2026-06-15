@@ -13,7 +13,7 @@ import type {
   ChatterPlatformResult,
   ChatterResult,
 } from '../types.ts';
-import { boundedText, clamp, envFlag, log10p1, unique } from '../util.ts';
+import { boundedText, clamp, envFlag, log10p1, safePublicUrl, unique } from '../util.ts';
 
 const MAX_CHATTER_BYTES = 256 * 1024;
 const PLATFORM_MAX = 15;
@@ -85,7 +85,7 @@ async function fetchHackerNews(
       title: h.title,
       points: h.points ?? 0,
       comments: h.num_comments ?? 0,
-      url: h.url,
+      url: safePublicUrl(h.url) ?? undefined, // #15: sanitize story URLs from API.
     })),
     unavailableMetrics: [],
   };
@@ -214,7 +214,7 @@ async function fetchYouTube(
   if (!apiKey) return unavailable('youtube');
   const term = terms[0] ?? '';
   const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=8&q=${encodeURIComponent(term)}&key=${apiKey}`;
-  const res = await fetchImpl(url);
+  const res = await fetchImpl(url, { redirect: 'error' }); // #19: key-in-URL, block redirects.
   if (!res.ok) return unavailable('youtube');
   const data = JSON.parse(await boundedText(res, MAX_CHATTER_BYTES)) as {
     items?: Array<{
@@ -236,7 +236,9 @@ async function fetchYouTube(
       title: v.snippet.title,
       channel: v.snippet.channelTitle,
       publishedAt: v.snippet.publishedAt,
-      url: v.id.videoId ? `https://www.youtube.com/watch?v=${v.id.videoId}` : undefined,
+      url: v.id.videoId
+        ? (safePublicUrl(`https://www.youtube.com/watch?v=${v.id.videoId}`) ?? undefined) // #15
+        : undefined,
     })),
     unavailableMetrics: [],
   };

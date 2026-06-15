@@ -10,7 +10,7 @@
 
 import type { ProviderMeta } from '../contracts.ts';
 import type { ProjectSignalFact } from '../types.ts';
-import { envFlag, envInt } from '../util.ts';
+import { envFlag, envInt, boundedText } from '../util.ts';
 
 export type ProviderName = 'deterministic' | 'ollama' | 'openai';
 
@@ -104,12 +104,15 @@ class DeterministicProvider implements AiProvider {
   }
 }
 
+const MAX_AI_RESPONSE_BYTES = 256 * 1024;
+
 interface ModelOpts {
   maxGenerations: number;
   timeoutMs: number;
   model: string;
   now: Date;
   fetchImpl: typeof fetch;
+  apiKey?: string;
 }
 
 function mergeDraft(raw: string, fallback: WriteupDraft): WriteupDraft {
@@ -152,12 +155,15 @@ class OllamaProvider implements AiProvider {
     if (!this.canGenerate()) {
       return { draft: request.fallback, meta: { ...fallbackMeta, reason: 'budget exhausted' } };
     }
+    this.used++; // Always consume budget, including on failure — prevents infinite retry (#20).
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs);
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.opts.apiKey) headers['Authorization'] = `Bearer ${this.opts.apiKey}`; // #18
       const res = await this.opts.fetchImpl(`${this.baseUrl}/api/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           model: this.opts.model,
           prompt: buildPrompt(request),
@@ -173,8 +179,9 @@ class OllamaProvider implements AiProvider {
           meta: { ...fallbackMeta, reason: `ollama HTTP ${res.status}` },
         };
       }
-      const data = (await res.json()) as { response?: string };
-      this.used++;
+      const data = JSON.parse(await boundedText(res, MAX_AI_RESPONSE_BYTES)) as {
+        response?: string;
+      };
       return {
         draft: mergeDraft(data.response ?? '', request.fallback),
         meta: {
@@ -222,6 +229,7 @@ class OpenAiProvider implements AiProvider {
     if (!this.canGenerate()) {
       return { draft: request.fallback, meta: { ...fallbackMeta, reason: 'budget exhausted' } };
     }
+    this.used++; // Always consume budget, including on failure — prevents infinite retry (#20).
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.opts.timeoutMs);
     try {
@@ -237,6 +245,7 @@ class OpenAiProvider implements AiProvider {
           messages: [{ role: 'user', content: buildPrompt(request) }],
         }),
         signal: controller.signal,
+        redirect: 'error', // #19: block open-redirect attacks with Bearer token in flight.
       });
       clearTimeout(timer);
       if (!res.ok) {
@@ -245,9 +254,10 @@ class OpenAiProvider implements AiProvider {
           meta: { ...fallbackMeta, reason: `openai HTTP ${res.status}` },
         };
       }
-      const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const data = JSON.parse(await boundedText(res, MAX_AI_RESPONSE_BYTES)) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
       const content = data.choices?.[0]?.message?.content ?? '';
-      this.used++;
       return {
         draft: mergeDraft(content, request.fallback),
         meta: {
@@ -283,8 +293,8 @@ export function createProvider(config: ProviderConfig): AiProvider {
   if (!enabled || providerName === 'deterministic') {
     return new DeterministicProvider(config.now);
   }
-  const modelEnvUnused = envFlag(env, 'ARDUR_AI_FORCE_DETERMINISTIC');
-  if (modelEnvUnused) return new DeterministicProvider(config.now);
+  const forceDeterministic = envFlag(env, 'ARDUR_AI_FORCE_DETERMINISTIC');
+  if (forceDeterministic) return new DeterministicProvider(config.now);
 
   if (providerName === 'ollama') {
     const apiKey = env['OLLAMA_API_KEY'];
@@ -298,6 +308,7 @@ export function createProvider(config: ProviderConfig): AiProvider {
         model: env['OLLAMA_MODEL'] ?? 'llama3.1',
         now: config.now,
         fetchImpl,
+        ...(apiKey ? { apiKey } : {}), // #18: forward key so OllamaProvider sets Authorization header.
       },
       baseUrl,
     );

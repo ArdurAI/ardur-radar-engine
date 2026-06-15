@@ -241,8 +241,8 @@ test('a grounded model writeup publishes', async () => {
           headline: 'Widget rises',
           dek: 'AI',
           body,
-          whyItMatters: `Adoption matters. [FACT:${request.facts[0]?.id}]`,
-          readerAction: 'Review on GitHub.',
+          whyItMatters: `Adoption signals are strong [FACT:${request.facts[0]?.id}].`,
+          readerAction: `Review the project on GitHub [FACT:${request.facts[0]?.id}].`,
         },
         meta: {
           provider: 'ollama',

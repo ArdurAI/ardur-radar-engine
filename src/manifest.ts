@@ -51,11 +51,13 @@ export function describe(): ToolManifest {
       env: [
         'ARDUR_AI_PROVIDER',
         'ARDUR_AI_ENABLED',
+        'ARDUR_AI_FORCE_DETERMINISTIC',
         'ARDUR_AI_MAX_GENERATIONS',
         'ARDUR_AI_TIMEOUT_MS',
         'OLLAMA_HOST',
         'OLLAMA_MODEL',
         'OLLAMA_API_KEY',
+        'OLLAMA_API_BASE',
         'OPENAI_API_KEY',
         'OPENAI_MODEL',
         'GITHUB_TOKEN',
@@ -69,7 +71,7 @@ export function describe(): ToolManifest {
         'ARDUR_OSS_FETCH_YOUTUBE',
         'ARDUR_OSS_FETCH_X',
         'YOUTUBE_API_KEY',
-        'X_API_BEARER_TOKEN',
+        // X_API_BEARER_TOKEN intentionally omitted — X/Twitter is stubbed as unavailable.
       ],
       stdout: 'json',
       errors: 'json-on-stderr',
@@ -77,6 +79,6 @@ export function describe(): ToolManifest {
     inputArtifact: 'radar',
     outputArtifact: 'radar',
     idempotency: 'cycle',
-    stateless: true,
+    stateless: false, // #22: engine reads/writes persisted ledger via --in/--out.
   };
 }

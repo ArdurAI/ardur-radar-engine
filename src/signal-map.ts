@@ -108,7 +108,14 @@ export function buildSignalMap(
     stats: { nodeCount: nodes.length, edgeCount: b.edges.length, projectCount: topTen.length },
     legend: {
       nodeTypes: ['project', 'category', 'language', 'owner', 'topic', 'platform-source'],
-      relationTypes: ['same-category', 'shared-topic', 'shared-language', 'same-org', 'co-mention'],
+      relationTypes: [
+        'same-category',
+        'shared-topic',
+        'shared-language',
+        'same-org',
+        'co-mention',
+        'cluster',
+      ],
     },
     nodes,
     edges: b.edges,

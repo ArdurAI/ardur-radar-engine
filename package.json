@@ -43,7 +43,7 @@
     "url": "https://github.com/ArdurAI/ardur-radar-engine.git"
   },
   "dependencies": {
-    "@ardurai/contracts": "github:ArdurAI/ardur-contracts#4a47ec8"
+    "@ardurai/contracts": "github:ArdurAI/ardur-contracts#e9f3d053a8202757dd4163869731a48f95a2f67b"
   },
   "optionalDependencies": {
     "openai": "^6.42.0"

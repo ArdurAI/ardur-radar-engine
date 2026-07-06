@@ -83,13 +83,7 @@ export interface CategoryCoverage {
 // ---------------------------------------------------------------------------
 
 export type ChatterPlatform =
-  | 'hacker-news'
-  | 'reddit'
-  | 'devto'
-  | 'medium'
-  | 'youtube'
-  | 'x-stub'
-  | 'github-metadata';
+  'hacker-news' | 'reddit' | 'devto' | 'medium' | 'youtube' | 'x-stub' | 'github-metadata';
 
 export type MetricStatus = 'real' | 'proxy' | 'unavailable';
 
@@ -214,20 +208,10 @@ export interface LedgerSnapshot {
 // ---------------------------------------------------------------------------
 
 export type SignalNodeType =
-  | 'project'
-  | 'category'
-  | 'owner'
-  | 'language'
-  | 'topic'
-  | 'platform-source';
+  'project' | 'category' | 'owner' | 'language' | 'topic' | 'platform-source';
 
 export type SignalRelation =
-  | 'same-category'
-  | 'same-org'
-  | 'shared-language'
-  | 'shared-topic'
-  | 'co-mention'
-  | 'cluster';
+  'same-category' | 'same-org' | 'shared-language' | 'shared-topic' | 'co-mention' | 'cluster';
 
 export interface SignalNode {
   id: string;

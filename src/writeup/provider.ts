@@ -287,7 +287,6 @@ class OpenAiProvider implements AiProvider {
   }
 }
 
-
 class HermesProvider implements AiProvider {
   readonly name: ProviderName = 'hermes';
   private used = 0;

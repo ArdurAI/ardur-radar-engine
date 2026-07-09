@@ -629,7 +629,6 @@ test('#20 OpenAI budget consumed even when HTTP error returned', async () => {
   assert.equal(provider.canGenerate(), false, 'budget must be exhausted after failed attempt');
 });
 
-
 // ─── Issue #28: Hermes provider parity ───────────────────────────────────────
 
 test('#28 Hermes provider falls back when unavailable offline', async () => {

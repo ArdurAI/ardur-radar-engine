@@ -3,7 +3,8 @@
  *
  * Ports the news synthesizer's provider pattern: deterministic by default,
  * Ollama as the primary model path (local-first; cloud only when OLLAMA_API_KEY
- * is set), OpenAI as an optional fallback. A provider NEVER rejects — every
+ * is set), OpenAI as an optional fallback, Hermes as first-class provider via
+ * proxy (GATEWAY/HERMES_PROXY_*) or CLI. A provider NEVER rejects — every
  * failure (timeout, HTTP error, bad JSON, exhausted budget) resolves to the
  * deterministic fallback draft, and the synthesizer decides whether to HOLD.
  */
@@ -11,8 +12,14 @@
 import type { ProviderMeta } from '../contracts.ts';
 import type { ProjectSignalFact } from '../types.ts';
 import { envFlag, envInt, boundedText } from '../util.ts';
+import {
+  hermesAvailable,
+  hermesGenerateCli,
+  hermesGenerateProxy,
+  hermesProxyBase,
+} from '../hermes-client.ts';
 
-export type ProviderName = 'deterministic' | 'ollama' | 'openai';
+export type ProviderName = 'deterministic' | 'hermes' | 'ollama' | 'openai';
 
 export interface WriteupDraft {
   headline: string;
@@ -280,6 +287,75 @@ class OpenAiProvider implements AiProvider {
   }
 }
 
+
+class HermesProvider implements AiProvider {
+  readonly name: ProviderName = 'hermes';
+  private used = 0;
+  private readonly opts: ModelOpts;
+  private readonly env: NodeJS.ProcessEnv;
+
+  constructor(opts: ModelOpts, env: NodeJS.ProcessEnv) {
+    this.opts = opts;
+    this.env = env;
+  }
+  canGenerate(): boolean {
+    return this.used < this.opts.maxGenerations && hermesAvailable(this.env);
+  }
+  generationsUsed(): number {
+    return this.used;
+  }
+  async generate(request: GenerateRequest): Promise<GenerateResult> {
+    const fallbackMeta: ProviderMeta = {
+      provider: 'deterministic',
+      model: 'rules/v1',
+      status: 'fallback',
+      generatedAt: this.opts.now.toISOString(),
+    };
+    if (!this.canGenerate()) {
+      return {
+        draft: request.fallback,
+        meta: { ...fallbackMeta, reason: 'budget exhausted or hermes unavailable' },
+      };
+    }
+    this.used++;
+    try {
+      let content: string | null = null;
+      if (hermesProxyBase(this.env)) {
+        content = await hermesGenerateProxy(buildPrompt(request), {
+          timeoutMs: this.opts.timeoutMs,
+          model: this.opts.model,
+          env: this.env,
+          fetchImpl: this.opts.fetchImpl,
+        });
+      } else {
+        content = hermesGenerateCli(buildPrompt(request), {
+          timeoutMs: this.opts.timeoutMs,
+          model: this.opts.model,
+          env: this.env,
+        });
+      }
+      if (!content) {
+        return {
+          draft: request.fallback,
+          meta: { ...fallbackMeta, reason: 'hermes returned no valid content' },
+        };
+      }
+      return {
+        draft: mergeDraft(content, request.fallback),
+        meta: {
+          provider: 'hermes',
+          model: this.opts.model,
+          status: 'generated',
+          generatedAt: this.opts.now.toISOString(),
+        },
+      };
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : 'hermes call failed';
+      return { draft: request.fallback, meta: { ...fallbackMeta, reason } };
+    }
+  }
+}
+
 /** Resolve a provider from config + env. Defaults to deterministic. */
 export function createProvider(config: ProviderConfig): AiProvider {
   const env = config.env ?? process.env;
@@ -325,6 +401,19 @@ export function createProvider(config: ProviderConfig): AiProvider {
         fetchImpl,
       },
       apiKey,
+    );
+  }
+  if (providerName === 'hermes') {
+    if (!hermesAvailable(env)) return new DeterministicProvider(config.now);
+    return new HermesProvider(
+      {
+        maxGenerations,
+        timeoutMs,
+        model: env['HERMES_MODEL'] ?? 'hermes-agent',
+        now: config.now,
+        fetchImpl,
+      },
+      env,
     );
   }
   return new DeterministicProvider(config.now);

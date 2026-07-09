@@ -629,6 +629,83 @@ test('#20 OpenAI budget consumed even when HTTP error returned', async () => {
   assert.equal(provider.canGenerate(), false, 'budget must be exhausted after failed attempt');
 });
 
+
+// ─── Issue #28: Hermes provider parity ───────────────────────────────────────
+
+test('#28 Hermes provider falls back when unavailable offline', async () => {
+  const provider = createProvider({
+    now: NOW,
+    provider: 'hermes',
+    maxGenerations: 2,
+    env: { ARDUR_AI_PROVIDER: 'hermes', HERMES_AVAILABLE: '0', CI: 'true' },
+  });
+  assert.equal(provider.name, 'deterministic', 'offline hermes must resolve to deterministic');
+  const facts = deriveFacts(rankedFixture(), NOW);
+  const fallback = { headline: 'h', dek: 'd', body: 'b', whyItMatters: 'w', readerAction: 'r' };
+  const r = await provider.generate({
+    projectId: 't',
+    projectName: 't',
+    fullName: 't/t',
+    category: 'AI',
+    facts,
+    fallback,
+    voiceDirective: '',
+  });
+  assert.equal(r.meta.provider, 'deterministic');
+  assert.equal(r.draft.headline, 'h');
+});
+
+test('#28 Hermes proxy path generates and emits hermes provider meta', async () => {
+  const fakeFetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                headline: 'Hermes Headline',
+                dek: 'Hermes dek',
+                body: 'Hermes body with [FACT:x]',
+                whyItMatters: 'why',
+                readerAction: 'act',
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+
+  const provider = createProvider({
+    now: NOW,
+    provider: 'hermes',
+    maxGenerations: 2,
+    env: {
+      ARDUR_AI_PROVIDER: 'hermes',
+      GATEWAY_PROXY_URL: 'https://proxy.example/v1',
+      GATEWAY_PROXY_KEY: 'secret',
+      HERMES_AVAILABLE: '1',
+      CI: 'false',
+    },
+    fetchImpl: fakeFetch as unknown as typeof fetch,
+  });
+  assert.equal(provider.name, 'hermes');
+  const facts = deriveFacts(rankedFixture(), NOW);
+  const fallback = { headline: 'h', dek: 'd', body: 'b', whyItMatters: 'w', readerAction: 'r' };
+  const r = await provider.generate({
+    projectId: 't',
+    projectName: 't',
+    fullName: 't/t',
+    category: 'AI',
+    facts,
+    fallback,
+    voiceDirective: '',
+  });
+  assert.equal(r.meta.provider, 'hermes');
+  assert.equal(r.meta.status, 'generated');
+  assert.equal(r.draft.headline, 'Hermes Headline');
+});
+
 // ─── Issue #22: Metadata accuracy ────────────────────────────────────────────
 
 test('#22 signal-map legend includes cluster relation type', async () => {

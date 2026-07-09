@@ -127,3 +127,16 @@ dormant Python sketch for reference; `docs/spec.md` is the canonical design.
 ## License
 
 MIT © 2026 ArdurAI
+
+## Hermes writeup provider
+
+Set `ARDUR_AI_PROVIDER=hermes` for radar project writeups.
+
+Resolution order:
+
+1. Proxy: `GATEWAY_PROXY_URL` or `HERMES_PROXY_URL` (+ optional `GATEWAY_PROXY_KEY` / `HERMES_PROXY_KEY`)
+2. CLI: `hermes` on PATH when not in CI and `HERMES_AVAILABLE!=0`
+3. Deterministic fallback (never rejects)
+
+Provider metadata emits `provider: "hermes"` on success.
+
